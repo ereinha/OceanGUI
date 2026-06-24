@@ -6,6 +6,7 @@ from typing import Optional
 import numpy as np
 from PyQt5 import QtCore
 
+from .processing import Processor
 from .spectrometer import SpectrometerInterface
 
 
@@ -21,6 +22,8 @@ class AcquisitionSettings:
     mode: RunMode = RunMode.NUMBER
     n_integrations: int = 10
     total_time_ms: float = 1000.0
+    correct_dark_counts: bool = False
+    correct_nonlinearity: bool = False
 
     def integrations_count(self) -> int:
         if self.mode is RunMode.NUMBER:
@@ -44,10 +47,12 @@ class AcquisitionWorker(QtCore.QThread):
     finished_ok = QtCore.pyqtSignal(object, object, object, object)  # wl, all, avg, std
     failed = QtCore.pyqtSignal(str)
 
-    def __init__(self, spec: SpectrometerInterface, settings: AcquisitionSettings):
+    def __init__(self, spec: SpectrometerInterface, settings: AcquisitionSettings,
+                 processor: Optional[Processor] = None):
         super().__init__()
         self._spec = spec
         self._settings = settings
+        self._processor = processor or Processor()
         self._abort = False
 
     def abort(self) -> None:
@@ -56,6 +61,7 @@ class AcquisitionWorker(QtCore.QThread):
     def run(self) -> None:
         try:
             settings = self._settings
+            processor = self._processor
             total = settings.integrations_count()
             self._spec.set_integration_time_ms(settings.single_time_ms)
 
@@ -66,7 +72,12 @@ class AcquisitionWorker(QtCore.QThread):
             for i in range(total):
                 if self._abort:
                     break
-                intensities = self._spec.intensities()
+                raw = self._spec.intensities(
+                    correct_dark_counts=settings.correct_dark_counts,
+                    correct_nonlinearity=settings.correct_nonlinearity,
+                )
+                intensities = processor.apply(
+                    raw, wavelengths, settings.single_time_ms / 1000.0)
                 collected[count] = intensities
                 count += 1
 
@@ -86,7 +97,7 @@ class AcquisitionWorker(QtCore.QThread):
             avg = stack.mean(axis=0)
             std = stack.std(axis=0, ddof=1) if count > 1 else np.zeros_like(avg)
             self.finished_ok.emit(wavelengths, stack, avg, std)
-        except Exception as exc:  # pragma: no cover - hardware dependent
+        except Exception as exc:
             self.failed.emit(str(exc))
 
     def _sleep_ms(self, ms: float) -> None:
@@ -95,3 +106,35 @@ class AcquisitionWorker(QtCore.QThread):
             if self._abort:
                 return
             time.sleep(min(0.02, max(0.0, end - time.monotonic())))
+
+
+class CaptureWorker(QtCore.QThread):
+    """Capture a single averaged spectrum (used for dark/reference storage)."""
+
+    captured = QtCore.pyqtSignal(object, object, float)
+    failed = QtCore.pyqtSignal(str)
+
+    def __init__(self, spec: SpectrometerInterface, single_time_ms: float,
+                 n_average: int = 10, *, correct_dark_counts: bool = False,
+                 correct_nonlinearity: bool = False):
+        super().__init__()
+        self._spec = spec
+        self._single_time_ms = single_time_ms
+        self._n_average = max(1, int(n_average))
+        self._correct_dark_counts = correct_dark_counts
+        self._correct_nonlinearity = correct_nonlinearity
+
+    def run(self) -> None:
+        try:
+            self._spec.set_integration_time_ms(self._single_time_ms)
+            wavelengths = self._spec.wavelengths()
+            acc = np.zeros(wavelengths.size, dtype=float)
+            for _ in range(self._n_average):
+                acc += self._spec.intensities(
+                    correct_dark_counts=self._correct_dark_counts,
+                    correct_nonlinearity=self._correct_nonlinearity,
+                )
+            spectrum = acc / self._n_average
+            self.captured.emit(wavelengths, spectrum, self._single_time_ms)
+        except Exception as exc:
+            self.failed.emit(str(exc))

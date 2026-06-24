@@ -16,15 +16,16 @@ XLABEL = "Wavelength (nm)"
 YLABEL = "Intensity (counts)"
 
 
-def style_axes(ax, wavelengths=None, *, y_from_zero: bool = False) -> None:
+def style_axes(ax, wavelengths=None, *, y_from_zero: bool = False,
+               ylabel: str = YLABEL, xlabel: str = XLABEL) -> None:
     """Apply the shared paper-quality styling to an axes.
 
     - axis labels with units, no title;
     - inward major+minor ticks on all four sides;
     - x-limits tightened to the data so ticks reach the plot edges.
     """
-    ax.set_xlabel(XLABEL, fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel(YLABEL, fontsize=LABEL_FONTSIZE)
+    ax.set_xlabel(xlabel, fontsize=LABEL_FONTSIZE)
+    ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
 
     if wavelengths is not None and np.size(wavelengths) > 1:
         ax.set_xlim(float(np.min(wavelengths)), float(np.max(wavelengths)))
@@ -54,11 +55,12 @@ def draw_placeholder(ax) -> None:
     style_axes(ax, x)
 
 
-def draw_current(ax, wavelengths, intensities) -> None:
+def draw_current(ax, wavelengths, intensities, *, ylabel: str = YLABEL,
+                 xlabel: str = XLABEL, y_from_zero: bool = True) -> None:
     """Draw the most recent single integration."""
     ax.clear()
     ax.plot(wavelengths, intensities, color=LINE_BLUE, linewidth=1.0)
-    style_axes(ax, wavelengths, y_from_zero=True)
+    style_axes(ax, wavelengths, y_from_zero=y_from_zero, ylabel=ylabel, xlabel=xlabel)
 
 
 def draw_average(
@@ -72,6 +74,9 @@ def draw_average(
     band_1sigma: bool = False,
     band_2sigma: bool = False,
     color: str = LINE_RED,
+    ylabel: str = YLABEL,
+    xlabel: str = XLABEL,
+    y_from_zero: bool = False,
 ) -> None:
     """Draw the average spectrum with optional uncertainty bars/bands."""
     ax.clear()
@@ -96,15 +101,16 @@ def draw_average(
                     capsize=2, alpha=0.7, label=label)
 
     ax.plot(wavelengths, average, color=color, linewidth=1.2, label="average")
-    style_axes(ax, wavelengths)
+    style_axes(ax, wavelengths, y_from_zero=y_from_zero, ylabel=ylabel, xlabel=xlabel)
     if bars_1sigma or bars_2sigma or band_1sigma or band_2sigma:
         ax.legend(loc="upper right", fontsize=LEGEND_FONTSIZE, framealpha=0.9)
 
 
-def draw_overlay(ax, wavelengths, all_intensities, average) -> None:
+def draw_overlay(ax, wavelengths, all_intensities, average, *, ylabel: str = YLABEL,
+                 xlabel: str = XLABEL, y_from_zero: bool = True) -> None:
     """Average in red with each individual integration in grey behind it."""
     ax.clear()
     for row in all_intensities:
         ax.plot(wavelengths, row, color=GREY, linewidth=0.6, alpha=0.5)
     ax.plot(wavelengths, average, color=LINE_RED, linewidth=1.4)
-    style_axes(ax, wavelengths, y_from_zero=True)
+    style_axes(ax, wavelengths, y_from_zero=y_from_zero, ylabel=ylabel, xlabel=xlabel)

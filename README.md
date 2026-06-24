@@ -15,6 +15,18 @@ If no spectrometer (or backend) is present, the app automatically runs in
   red = disconnected), a drop-down of available devices, and **Connect**
   (also used to change device), **Reconnect**, and **Refresh** buttons. The
   status auto-refreshes every 2 s.
+- **Measurement modes** (like OceanView): **Scope** (raw counts), **Scope minus
+  dark**, **Absorbance**, **Transmittance (%)**, **Reflectance (%)**,
+  **Absolute irradiance** (µW/cm²/nm, from a radiometric calibration file) and
+  **Raman shift** (cm⁻¹, relative to an excitation wavelength). The plot axes
+  are labelled to match the selected mode (the x-axis becomes Raman shift in
+  Raman mode).
+- **Background & reference capture**: store an averaged **dark/background** for
+  subtraction and a **reference** for the ratio modes (with a warning if they
+  were taken at a different integration time).
+- **Device corrections** (gated by hardware support, with clear popups when a
+  device lacks them): **electric-dark** and **nonlinearity** correction, plus
+  software **boxcar smoothing**.
 - **Side-by-side plots**: the current integration (left) and the running
   average integration (right).
 - **Paper-quality figures**: descriptive axis labels with units and *no* plot
@@ -152,6 +164,8 @@ See [vendor/README.md](vendor/README.md) for more detail.
    The indicator turns green when connected. Use **Reconnect** after a
    replug, or **Refresh** to re-scan the bus.
 2. Set the **single integration time**, **down time**, and pick a **run mode**.
+   Optionally pick a **measurement mode** — for Absorbance/Transmittance/
+   Reflectance, first **Capture dark** (light blocked) and **Capture reference**.
 3. Enter a **run name** (required — Start stays disabled until you do).
 4. Press **Start**. Plots update live; toggle 1σ/2σ bars and bands anytime.
    Press **Interrupt** to stop early (with confirmation) — partial data is kept.
@@ -181,8 +195,9 @@ OceanGUI/
 ├── ocean_gui/
 │   ├── main.py          # entry point
 │   ├── gui.py           # PyQt5 main window
-│   ├── acquisition.py   # settings model + background acquisition thread
+│   ├── acquisition.py   # settings model + acquisition/capture threads
 │   ├── spectrometer.py  # seabreeze wrapper + simulation fallback
+│   ├── processing.py    # measurement modes + dark/reference + smoothing
 │   ├── plotting.py      # shared matplotlib rendering
 │   └── storage.py       # CSV / figure saving
 ├── assets/

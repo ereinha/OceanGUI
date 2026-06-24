@@ -46,13 +46,21 @@ class SimulatedSpectrometer:
     def wavelengths(self) -> np.ndarray:
         return self._wavelengths.copy()
 
-    def intensities(self) -> np.ndarray:
+    def intensities(self, correct_dark_counts: bool = False,
+                    correct_nonlinearity: bool = False) -> np.ndarray:
+        if correct_nonlinearity:
+            raise SpectrometerError(
+                "Nonlinearity correction is not supported by this device.")
         scale = self._integration_us / 100_000.0
-        base = 200.0 * scale + np.zeros(self._n)
+        baseline = 200.0 * scale
+        base = baseline + np.zeros(self._n)
         for center, amp, width in self._peaks:
             base += amp * scale * np.exp(-0.5 * ((self._wavelengths - center) / width) ** 2)
         noise = np.random.normal(0.0, np.sqrt(np.abs(base)) + 15.0 * scale)
-        return np.clip(base + noise, 0.0, None)
+        out = np.clip(base + noise, 0.0, None)
+        if correct_dark_counts:
+            out = out - baseline
+        return out
 
     def close(self) -> None:
         pass
@@ -148,8 +156,37 @@ class SpectrometerInterface:
     def wavelengths(self) -> np.ndarray:
         return np.asarray(self._device.wavelengths(), dtype=float)
 
-    def intensities(self) -> np.ndarray:
-        return np.asarray(self._device.intensities(), dtype=float)
+    def intensities(self, correct_dark_counts: bool = False,
+                    correct_nonlinearity: bool = False) -> np.ndarray:
+        """Read a spectrum, optionally with device-level corrections.
+
+        ``correct_dark_counts`` and ``correct_nonlinearity`` require hardware
+        support (electric-dark pixels / EEPROM coefficients). Devices lacking
+        them raise; the error is wrapped as :class:`SpectrometerError` so the
+        GUI can show a clear popup and let the user disable the option.
+        """
+        try:
+            data = self._device.intensities(
+                correct_dark_counts=correct_dark_counts,
+                correct_nonlinearity=correct_nonlinearity,
+            )
+        except SpectrometerError:
+            raise
+        except Exception as exc:
+            raise SpectrometerError(
+                f"This device does not support the requested correction "
+                f"(dark={correct_dark_counts}, nonlinearity={correct_nonlinearity}): {exc}"
+            ) from exc
+        return np.asarray(data, dtype=float)
+
+    def probe_corrections(self, correct_dark_counts: bool,
+                          correct_nonlinearity: bool) -> None:
+        """Take one reading with the given corrections to verify support.
+
+        Raises :class:`SpectrometerError` if the device cannot honour them.
+        """
+        self.intensities(correct_dark_counts=correct_dark_counts,
+                         correct_nonlinearity=correct_nonlinearity)
 
     def close(self) -> None:
         try:

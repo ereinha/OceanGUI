@@ -44,11 +44,19 @@ def save_csv(
     all_intensities: np.ndarray,
     average: np.ndarray,
     std: np.ndarray,
+    metadata: dict = None,
 ) -> Path:
+    """Write the spectra to CSV.
+
+    ``metadata`` is an optional dict of extra ``# key,value`` header lines
+    (e.g. measurement mode, corrections, smoothing, dark/reference state).
+    """
     n_integrations = all_intensities.shape[0]
     with open(path, "w", newline="") as fh:
         fh.write(f"# single_integration_time_ms,{single_time_ms}\n")
         fh.write(f"# n_integrations,{n_integrations}\n")
+        for key, value in (metadata or {}).items():
+            fh.write(f"# {key},{value}\n")
         writer = csv.writer(fh)
         header = ["wavelength_nm"]
         header += [f"integration_{i + 1}" for i in range(n_integrations)]
