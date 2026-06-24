@@ -70,20 +70,50 @@ The installer will:
 4. (Linux) configure seabreeze udev rules via `seabreeze_os_setup`,
 5. create a **desktop shortcut**.
 
-### Offline / flash-drive install (no internet on the target machine)
+### Air-gapped / flash-drive install (no internet on the target machine)
 
-To install on an **air-gapped computer**, pre-download the dependencies on a
-machine that *has* internet, then carry everything on a flash drive:
+There are two ways to deploy to a computer with no internet, depending on
+whether that computer already has Python:
 
-1. **On an online machine** (ideally the same OS/architecture as the target):
+| Target machine | Use | Needs Python on target? |
+| --- | --- | --- |
+| **No Python installed** | **A. Standalone build** (recommended) | **No** |
+| Already has Python | B. Offline wheel bundle | Yes |
+
+#### A. Standalone build — no Python needed on the target
+
+Bundles Python + every dependency (including the seabreeze hardware backend)
+into a double-clickable app. PyInstaller can't cross-compile, so build on an
+**online machine of the same OS** as the target.
+
+1. **On an online machine (same OS as target)**:
+
+   ```bash
+   ./build_standalone.sh        # Linux/macOS
+   # or:  powershell -ExecutionPolicy Bypass -File build_standalone.ps1   (Windows)
+   ```
+
+   This produces `dist/OceanSpectrometerGUI/` (Python and all deps embedded).
+
+2. **Copy that `dist/OceanSpectrometerGUI` folder** onto the flash drive and
+   over to the air-gapped machine.
+
+3. **On the target**, run the `OceanSpectrometerGUI` executable inside it —
+   no installation, no Python, no internet. Acquisition output is saved to a
+   `saved_data/` folder created next to the executable.
+
+   Use `--onefile` for a single executable file instead of a folder.
+
+#### B. Offline wheel bundle — target already has Python
+
+1. **On an online machine** (ideally the same OS/arch as the target):
 
    ```bash
    ./prepare_offline.sh          # Linux/macOS
    # or:  powershell -ExecutionPolicy Bypass -File prepare_offline.ps1   (Windows)
    ```
 
-   This downloads every wheel into `vendor/wheels/`. To build a bundle for a
-   different platform, e.g.:
+   This downloads every wheel into `vendor/wheels/`. For a different platform:
 
    ```bash
    python assets/prepare_offline.py --target windows64 --python-version 3.11
@@ -99,15 +129,15 @@ machine that *has* internet, then carry everything on a flash drive:
    ```
 
    It auto-detects `vendor/wheels/` and installs with `pip --no-index`, so **no
-   network access is used**. (The target machine still needs Python itself
-   installed — put the Python installer on the drive too if needed.)
+   network access is used**.
 
-See [vendor/README.md](vendor/README.md) for details.
+See [vendor/README.md](vendor/README.md) for more detail.
 
 ---
 
 ## Running
 
+- **Standalone build**: run the `OceanSpectrometerGUI` executable (no Python).
 - **Desktop shortcut**: *Ocean Spectrometer GUI*
 - **Linux / macOS**: `./run.sh`
 - **Windows**: `run.bat`
@@ -156,12 +186,15 @@ OceanGUI/
 │   ├── plotting.py      # shared matplotlib rendering
 │   └── storage.py       # CSV / figure saving
 ├── assets/
-│   ├── make_icon.py       # generates the app icon
-│   ├── make_shortcut.py   # creates the desktop shortcut (Linux/Windows)
-│   └── prepare_offline.py # downloads wheels for an offline bundle
+│   ├── make_icon.py        # generates the app icon
+│   ├── make_shortcut.py    # creates the desktop shortcut (Linux/Windows)
+│   ├── prepare_offline.py  # downloads wheels for an offline bundle
+│   └── build_standalone.py # builds the no-Python standalone app (PyInstaller)
+├── standalone_entry.py  # entry point for the standalone build
 ├── vendor/wheels/       # offline dependency bundle (built on demand)
-├── saved_data/          # acquisition output (inside the repo)
-├── install.sh / run.sh / prepare_offline.sh          # Linux / macOS
-├── install.ps1 / install.bat / run.bat / prepare_offline.ps1   # Windows
-└── requirements.txt
+├── saved_data/          # acquisition output (next to the app)
+├── install.sh / run.sh / prepare_offline.sh / build_standalone.sh         # Linux / macOS
+├── install.ps1 / install.bat / run.bat / prepare_offline.ps1 / build_standalone.ps1   # Windows
+├── requirements.txt        # runtime dependencies
+└── build-requirements.txt  # extra tooling to build the standalone app
 ```

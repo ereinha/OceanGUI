@@ -4,6 +4,11 @@
 installed on a computer **with no internet connection** (e.g. copied from a
 flash drive).
 
+> **If the target machine has no Python at all**, use the **standalone build**
+> instead (`build_standalone.sh` / `build_standalone.ps1`), which bundles
+> Python + everything into a double-clickable app. This wheel bundle still
+> requires Python to be present on the target. See the main README.
+
 ## How it works
 
 1. **On a machine with internet**, from the repo root:

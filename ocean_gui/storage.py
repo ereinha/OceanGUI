@@ -1,11 +1,26 @@
 import csv
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _base_dir() -> Path:
+    """Folder that ``saved_data`` lives next to.
+
+    For a normal source checkout this is the repository root. For a frozen
+    standalone build (PyInstaller) it is the folder containing the executable,
+    so output is written beside the app (writable on a flash drive) rather
+    than into the read-only bundle.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+REPO_ROOT = _base_dir()
 DEFAULT_SAVE_DIR = REPO_ROOT / "saved_data"
 
 

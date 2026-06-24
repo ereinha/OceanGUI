@@ -1,0 +1,3 @@
+# Extra tooling needed only to BUILD the self-contained app (not at runtime).
+# Used by build_standalone.sh / build_standalone.ps1 on the (online) build machine.
+pyinstaller>=6.0

@@ -1,6 +1,13 @@
 # Virtual environment
 .venv/
 venv/
+.buildvenv/
+
+# PyInstaller standalone build output
+build/
+dist/
+*.spec
+assets/icon.icns
 
 # Python
 __pycache__/
