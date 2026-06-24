@@ -11,8 +11,16 @@ If no spectrometer (or backend) is present, the app automatically runs in
 
 ## Features
 
+- **Live device panel**: a perpetual connection indicator (green = connected,
+  red = disconnected), a drop-down of available devices, and **Connect**
+  (also used to change device), **Reconnect**, and **Refresh** buttons. The
+  status auto-refreshes every 2 s.
 - **Side-by-side plots**: the current integration (left) and the running
   average integration (right).
+- **Paper-quality figures**: descriptive axis labels with units and *no* plot
+  title, inward tick marks on all four sides, data drawn edge-to-edge so ticks
+  reach the borders, and **300 DPI** output with a publication-friendly
+  font-to-figure ratio.
 - **Placeholder axes**: example dummy axes are shown until real data arrives.
 - **Two run modes** (mutually exclusive):
   - *Number of integrations* — run an exact count, or
@@ -28,6 +36,8 @@ If no spectrometer (or backend) is present, the app automatically runs in
     integration in **grey**.
 - **Save total figure (with bars/bands)** button — saves the average plot with
   the currently-enabled uncertainty overlays.
+- **Interrupt** button — stops an in-progress run after an *"Are you sure?"*
+  confirmation; integrations collected so far are still saved.
 - **In-app Help menu** (also `F1`).
 - **Desktop shortcut** with a generated icon (white background, black border,
   red spectrum line), created by the installer.
@@ -73,10 +83,14 @@ The installer will:
 
 ## Usage
 
-1. Press **Connect** (or just **Start** — it connects automatically).
+1. Pick a device from the **Available devices** drop-down and press
+   **Connect** (or just **Start** — it connects to the selection automatically).
+   The indicator turns green when connected. Use **Reconnect** after a
+   replug, or **Refresh** to re-scan the bus.
 2. Set the **single integration time**, **down time**, and pick a **run mode**.
 3. Enter a **run name** (required — Start stays disabled until you do).
 4. Press **Start**. Plots update live; toggle 1σ/2σ bars and bands anytime.
+   Press **Interrupt** to stop early (with confirmation) — partial data is kept.
 5. On completion the CSV and figures are saved automatically. Use
    **Save total figure (with bars/bands)** for a copy with your chosen overlays.
 

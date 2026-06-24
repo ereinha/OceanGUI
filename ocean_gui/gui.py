@@ -15,9 +15,18 @@ HELP_TEXT = """\
 <h2>Ocean Spectrometer GUI - Help</h2>
 
 <h3>1. Connect</h3>
-<p>Press <b>Connect</b> to open the first available Ocean spectrometer via the
-seabreeze backend. If no device or backend is found, the app runs in
-<b>simulation mode</b> so you can still try every feature.</p>
+<p>The <b>Device</b> panel shows a live connection indicator: a
+<font color="#2ca02c">green</font> dot when a device is connected and a
+<font color="#cc1f1f">red</font> dot when it is not. The status refreshes
+automatically.</p>
+<ul>
+<li><b>Available devices</b> drop-down - pick which spectrometer to use.</li>
+<li><b>Connect</b> - open the selected device (also how you <i>change</i> device).</li>
+<li><b>Reconnect</b> - re-open the current device after an unplug/replug.</li>
+<li><b>Refresh</b> - re-scan the USB bus for connected devices.</li>
+</ul>
+<p>If no device or backend is found, a <b>simulation</b> entry is offered so you
+can still try every feature.</p>
 
 <h3>2. Settings</h3>
 <ul>
@@ -71,9 +80,19 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._average: Optional[np.ndarray] = None
         self._std: Optional[np.ndarray] = None
 
+        self._connected = False
+
         self._build_ui()
         self._update_status(f"Backend: {backend_status()}")
+        self._refresh_devices()
+        self._set_connection_indicator(False, "Not connected")
         self._refresh_start_enabled()
+
+        # Perpetual connection-status polling (skipped while a run is active).
+        self._poll_timer = QtCore.QTimer(self)
+        self._poll_timer.setInterval(2000)
+        self._poll_timer.timeout.connect(self._poll_connection)
+        self._poll_timer.start()
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -105,12 +124,37 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
 
         conn_box = QtWidgets.QGroupBox("Device")
         cb = QtWidgets.QVBoxLayout(conn_box)
+
+        status_row = QtWidgets.QHBoxLayout()
+        self.status_dot = QtWidgets.QLabel("●")  # ●
+        dot_font = self.status_dot.font()
+        dot_font.setPointSize(16)
+        self.status_dot.setFont(dot_font)
+        self.status_dot.setFixedWidth(20)
+        self.conn_text = QtWidgets.QLabel("Not connected")
+        self.conn_text.setWordWrap(True)
+        status_row.addWidget(self.status_dot, 0)
+        status_row.addWidget(self.conn_text, 1)
+        cb.addLayout(status_row)
+
+        cb.addWidget(QtWidgets.QLabel("Available devices:"))
+        self.device_combo = QtWidgets.QComboBox()
+        cb.addWidget(self.device_combo)
+
+        btn_row = QtWidgets.QHBoxLayout()
         self.connect_btn = QtWidgets.QPushButton("Connect")
-        self.connect_btn.clicked.connect(self._connect)
-        self.device_label = QtWidgets.QLabel("Not connected")
-        self.device_label.setWordWrap(True)
-        cb.addWidget(self.connect_btn)
-        cb.addWidget(self.device_label)
+        self.connect_btn.setToolTip("Open the device selected above (use to change device)")
+        self.connect_btn.clicked.connect(self._connect_selected)
+        self.reconnect_btn = QtWidgets.QPushButton("Reconnect")
+        self.reconnect_btn.setToolTip("Re-open the current device")
+        self.reconnect_btn.clicked.connect(self._reconnect)
+        self.refresh_btn = QtWidgets.QPushButton("Refresh")
+        self.refresh_btn.setToolTip("Re-scan for connected devices")
+        self.refresh_btn.clicked.connect(self._refresh_devices)
+        btn_row.addWidget(self.connect_btn)
+        btn_row.addWidget(self.reconnect_btn)
+        btn_row.addWidget(self.refresh_btn)
+        cb.addLayout(btn_row)
         v.addWidget(conn_box)
 
         s_box = QtWidgets.QGroupBox("Acquisition settings")
@@ -173,7 +217,8 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
 
         self.start_btn = QtWidgets.QPushButton("Start")
         self.start_btn.clicked.connect(self._start)
-        self.stop_btn = QtWidgets.QPushButton("Stop")
+        self.stop_btn = QtWidgets.QPushButton("Interrupt")
+        self.stop_btn.setToolTip("Interrupt the current acquisition (asks for confirmation)")
         self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.setEnabled(False)
         self.save_btn = QtWidgets.QPushButton("Save total figure (with bars/bands)")
@@ -193,19 +238,35 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         panel = QtWidgets.QWidget()
         h = QtWidgets.QHBoxLayout(panel)
 
+        header_font = QtGui.QFont()
+        header_font.setBold(True)
+        header_font.setPointSize(12)
+
+        left = QtWidgets.QVBoxLayout()
+        self.current_header = QtWidgets.QLabel("Current integration")
+        self.current_header.setAlignment(QtCore.Qt.AlignCenter)
+        self.current_header.setFont(header_font)
         self.fig_current = Figure(figsize=(5, 4), tight_layout=True)
         self.ax_current = self.fig_current.add_subplot(111)
         self.canvas_current = FigureCanvas(self.fig_current)
+        left.addWidget(self.current_header)
+        left.addWidget(self.canvas_current)
 
+        right = QtWidgets.QVBoxLayout()
+        self.avg_header = QtWidgets.QLabel("Average integration")
+        self.avg_header.setAlignment(QtCore.Qt.AlignCenter)
+        self.avg_header.setFont(header_font)
         self.fig_avg = Figure(figsize=(5, 4), tight_layout=True)
         self.ax_avg = self.fig_avg.add_subplot(111)
         self.canvas_avg = FigureCanvas(self.fig_avg)
+        right.addWidget(self.avg_header)
+        right.addWidget(self.canvas_avg)
 
-        h.addWidget(self.canvas_current)
-        h.addWidget(self.canvas_avg)
+        h.addLayout(left)
+        h.addLayout(right)
 
-        plotting.draw_placeholder(self.ax_current, "Current integration")
-        plotting.draw_placeholder(self.ax_avg, "Average integration")
+        plotting.draw_placeholder(self.ax_current)
+        plotting.draw_placeholder(self.ax_avg)
         self.canvas_current.draw()
         self.canvas_avg.draw()
         return panel
@@ -232,21 +293,90 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             total_time_ms=self.total_time.value(),
         )
 
-    def _connect(self) -> None:
+    #  device mgmt
+    def _set_connection_indicator(self, connected: bool, text: str) -> None:
+        color = "#2ca02c" if connected else "#cc1f1f"  # green / red
+        self.status_dot.setStyleSheet(f"color: {color};")
+        self.conn_text.setText(text)
+        self._connected = connected
+
+    def _set_device_controls_enabled(self, enabled: bool) -> None:
+        for w in (self.device_combo, self.connect_btn,
+                  self.reconnect_btn, self.refresh_btn):
+            w.setEnabled(enabled)
+
+    def _selected_serial(self) -> Optional[str]:
+        if self.device_combo.count() == 0:
+            return None
+        return self.device_combo.currentData()
+
+    def _refresh_devices(self) -> None:
+        previous = self._selected_serial()
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+        infos = SpectrometerInterface.list_available()
+        for info in infos:
+            self.device_combo.addItem(info.label, info.serial)
+        if previous is not None:
+            idx = self.device_combo.findData(previous)
+            if idx >= 0:
+                self.device_combo.setCurrentIndex(idx)
+        self.device_combo.blockSignals(False)
+        self._update_status(f"Found {len(infos)} device option(s).")
+
+    def _open(self, serial: str) -> None:
+        if self.spec is not None:
+            self.spec.close()
+            self.spec = None
         try:
-            self.spec = SpectrometerInterface.open_first(allow_simulation=True)
+            self.spec = SpectrometerInterface.open_serial(serial)
         except Exception as exc:
+            self._set_connection_indicator(False, "Not connected")
             QtWidgets.QMessageBox.critical(self, "Connection failed", str(exc))
             return
         mode = "SIMULATION" if self.spec.simulated else "HARDWARE"
-        self.device_label.setText(
-            f"[{mode}]\n{self.spec.model}\nSN: {self.spec.serial_number}"
-        )
+        self._set_connection_indicator(
+            True, f"Connected [{mode}]\n{self.spec.model}  ·  SN {self.spec.serial_number}")
         self._update_status(f"Connected ({mode}).")
+        idx = self.device_combo.findData(str(self.spec.serial_number))
+        if idx >= 0:
+            self.device_combo.setCurrentIndex(idx)
+
+    def _connect_selected(self) -> None:
+        serial = self._selected_serial()
+        if serial is None:
+            QtWidgets.QMessageBox.warning(
+                self, "No device", "No device available. Press Refresh to re-scan.")
+            return
+        self._open(str(serial))
+
+    def _reconnect(self) -> None:
+        serial = (str(self.spec.serial_number) if self.spec is not None
+                  else self._selected_serial())
+        if serial is None:
+            self._refresh_devices()
+            self._connect_selected()
+            return
+        self._open(str(serial))
+
+    def _poll_connection(self) -> None:
+        if self.worker is not None and self.worker.isRunning():
+            return
+        if self.spec is None:
+            if self._connected:
+                self._set_connection_indicator(False, "Not connected")
+            return
+        if self.spec.is_alive():
+            mode = "SIMULATION" if self.spec.simulated else "HARDWARE"
+            self._set_connection_indicator(
+                True, f"Connected [{mode}]\n{self.spec.model}  ·  SN {self.spec.serial_number}")
+        else:
+            self._set_connection_indicator(
+                False, f"Device lost — {self.spec.model}\nPress Reconnect")
 
     def _start(self) -> None:
         if self.spec is None:
-            self._connect()
+            self._connect_selected()
             if self.spec is None:
                 return
 
@@ -272,8 +402,10 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._run_single_ms = settings.single_time_ms
         self.progress.setMaximum(settings.integrations_count())
         self.progress.setValue(0)
-        plotting.draw_placeholder(self.ax_current, "Current integration")
-        plotting.draw_placeholder(self.ax_avg, "Average integration")
+        self.current_header.setText("Current integration")
+        self.avg_header.setText("Average integration")
+        plotting.draw_placeholder(self.ax_current)
+        plotting.draw_placeholder(self.ax_avg)
         self.canvas_current.draw()
         self.canvas_avg.draw()
 
@@ -286,19 +418,31 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.save_btn.setEnabled(False)
+        self._set_device_controls_enabled(False)
         self._update_status(f"Running -> {self.run_dir}")
 
     def _stop(self) -> None:
-        if self.worker is not None:
-            self.worker.abort()
-            self._update_status("Stopping after current integration...")
+        if self.worker is None or not self.worker.isRunning():
+            return
+        reply = QtWidgets.QMessageBox.question(
+            self, "Interrupt acquisition?",
+            "Are you sure you want to interrupt the current acquisition?\n\n"
+            "Integrations collected so far will still be saved.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        self.worker.abort()
+        self._update_status("Interrupting after current integration...")
 
     def _on_progress(self, index, total, wavelengths, intensities, avg, std) -> None:
         self._wavelengths = wavelengths
         self._average = avg
         self._std = std
         self.progress.setValue(index)
-        plotting.draw_current(self.ax_current, wavelengths, intensities, index, total)
+        self.current_header.setText(f"Current integration  ({index}/{total})")
+        plotting.draw_current(self.ax_current, wavelengths, intensities)
         self.canvas_current.draw()
         self._redraw_average()
 
@@ -310,6 +454,7 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._redraw_average()
         self.stop_btn.setEnabled(False)
         self.save_btn.setEnabled(True)
+        self._set_device_controls_enabled(True)
         self._refresh_start_enabled()
 
         try:
@@ -324,6 +469,7 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.critical(self, "Acquisition failed", message)
         self.stop_btn.setEnabled(False)
         self.worker = None
+        self._set_device_controls_enabled(True)
         self._refresh_start_enabled()
         self._update_status("Acquisition failed.")
 
@@ -339,6 +485,14 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         )
         self.canvas_avg.draw()
 
+    @staticmethod
+    def _save_paper_figure(draw, out_path: str) -> None:
+        """Render a paper-quality figure (300 DPI) via the given draw callback."""
+        fig = Figure(figsize=plotting.PAPER_FIGSIZE, tight_layout=True)
+        ax = fig.add_subplot(111)
+        draw(ax)
+        fig.savefig(out_path, dpi=plotting.PAPER_DPI)
+
     def _autosave(self) -> None:
         assert self.run_dir is not None
         base = self.run_dir / self._run_name
@@ -349,37 +503,31 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
 
         storage.save_csv(Path(f"{base}_data.csv"), self._run_single_ms, wl, alli, avg, std)
 
-        fig = Figure(figsize=(6, 4.5), tight_layout=True)
-        ax = fig.add_subplot(111)
-        plotting.draw_average(ax, wl, avg, std, title="Total / average integration")
-        fig.savefig(f"{base}_total.png", dpi=150)
-
-        fig = Figure(figsize=(6, 4.5), tight_layout=True)
-        ax = fig.add_subplot(111)
-        plotting.draw_average(ax, wl, avg, std, title="Average integration")
-        fig.savefig(f"{base}_average.png", dpi=150)
-
-        fig = Figure(figsize=(6, 4.5), tight_layout=True)
-        ax = fig.add_subplot(111)
-        plotting.draw_overlay(ax, wl, alli, avg)
-        fig.savefig(f"{base}_average_overlay.png", dpi=150)
+        # Picture of the total/average integration (no bars/bands).
+        self._save_paper_figure(
+            lambda ax: plotting.draw_average(ax, wl, avg, std), f"{base}_total.png")
+        # Average integration (no bars/bands).
+        self._save_paper_figure(
+            lambda ax: plotting.draw_average(ax, wl, avg, std), f"{base}_average.png")
+        # Average in red over each individual integration in grey.
+        self._save_paper_figure(
+            lambda ax: plotting.draw_overlay(ax, wl, alli, avg), f"{base}_average_overlay.png")
 
     def _save_total_with_uncertainty(self) -> None:
         if self.run_dir is None or self._average is None:
             return
         base = self.run_dir / self._run_name
-        fig = Figure(figsize=(6, 4.5), tight_layout=True)
-        ax = fig.add_subplot(111)
-        plotting.draw_average(
-            ax, self._wavelengths, self._average, self._std,
-            bars_1sigma=self.cb_bars1.isChecked(),
-            bars_2sigma=self.cb_bars2.isChecked(),
-            band_1sigma=self.cb_band1.isChecked(),
-            band_2sigma=self.cb_band2.isChecked(),
-            title="Total integration (with uncertainty)",
-        )
         out = f"{base}_total_with_uncertainty.png"
-        fig.savefig(out, dpi=150)
+        self._save_paper_figure(
+            lambda ax: plotting.draw_average(
+                ax, self._wavelengths, self._average, self._std,
+                bars_1sigma=self.cb_bars1.isChecked(),
+                bars_2sigma=self.cb_bars2.isChecked(),
+                band_1sigma=self.cb_band1.isChecked(),
+                band_2sigma=self.cb_band2.isChecked(),
+            ),
+            out,
+        )
         self._update_status(f"Saved {out}")
 
     def _show_help(self) -> None:

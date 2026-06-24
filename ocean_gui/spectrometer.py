@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from typing import List
+
 import numpy as np
 
 try:
@@ -8,6 +11,18 @@ except Exception:
     Spectrometer = None
     list_devices = None
     _SEABREEZE_AVAILABLE = False
+
+
+SIMULATED_SERIAL = "SIM-0001"
+
+
+@dataclass
+class DeviceInfo:
+    """A spectrometer the user can select and connect to."""
+
+    label: str
+    serial: str
+    simulated: bool
 
 
 class SpectrometerError(RuntimeError):
@@ -66,6 +81,58 @@ class SpectrometerInterface:
                 "Connect an Ocean device and install seabreeze."
             )
         return cls(SimulatedSpectrometer(), simulated=True)
+
+    @staticmethod
+    def list_available(include_simulated: bool = True) -> List[DeviceInfo]:
+        """Enumerate connected spectrometers (plus a simulation entry)."""
+        infos: List[DeviceInfo] = []
+        if _SEABREEZE_AVAILABLE:
+            try:
+                for d in list_devices() or []:
+                    infos.append(DeviceInfo(
+                        label=f"{d.model} ({d.serial_number})",
+                        serial=str(d.serial_number),
+                        simulated=False,
+                    ))
+            except Exception:
+                pass
+        if include_simulated:
+            infos.append(DeviceInfo(
+                label=f"Simulated device ({SIMULATED_SERIAL})",
+                serial=SIMULATED_SERIAL,
+                simulated=True,
+            ))
+        return infos
+
+    @classmethod
+    def open_serial(cls, serial: str) -> "SpectrometerInterface":
+        """Open a specific device by serial number.
+
+        ``SIMULATED_SERIAL`` opens the built-in simulated device.
+        """
+        if serial == SIMULATED_SERIAL:
+            return cls(SimulatedSpectrometer(), simulated=True)
+        if not _SEABREEZE_AVAILABLE:
+            raise SpectrometerError("seabreeze backend is not installed.")
+        try:
+            for d in list_devices() or []:
+                if str(d.serial_number) == str(serial):
+                    return cls(Spectrometer(d), simulated=False)
+        except Exception as exc:
+            raise SpectrometerError(f"Could not open device {serial}: {exc}") from exc
+        raise SpectrometerError(f"Device with serial '{serial}' not found.")
+
+    def is_alive(self) -> bool:
+        """Best-effort check that the device is still present/responsive."""
+        if self.simulated:
+            return True
+        if not _SEABREEZE_AVAILABLE:
+            return False
+        try:
+            serials = [str(d.serial_number) for d in (list_devices() or [])]
+            return str(self.serial_number) in serials
+        except Exception:
+            return False
 
     @property
     def model(self) -> str:
