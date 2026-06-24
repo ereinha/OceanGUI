@@ -4,6 +4,11 @@
 # Creates a virtual environment, installs dependencies, generates the icon,
 # configures udev rules for seabreeze, and creates a desktop shortcut.
 #
+# Works ONLINE (installs from PyPI) or OFFLINE: if vendor/wheels/ contains a
+# pre-downloaded bundle (see prepare_offline.sh), dependencies are installed
+# from it with no network access - ideal for air-gapped machines / flash-drive
+# installs.
+#
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +16,7 @@ cd "$REPO_ROOT"
 
 PYTHON="${PYTHON:-python3}"
 VENV_DIR="$REPO_ROOT/.venv"
+WHEELS_DIR="$REPO_ROOT/vendor/wheels"
 
 echo "==> Ocean Spectrometer GUI installer"
 echo "    Repository: $REPO_ROOT"
@@ -25,11 +31,24 @@ echo "==> Creating virtual environment (.venv)"
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 
-echo "==> Upgrading pip"
-python -m pip install --upgrade pip wheel >/dev/null
+# Detect an offline wheel bundle.
+OFFLINE=0
+if ls "$WHEELS_DIR"/*.whl >/dev/null 2>&1; then
+    OFFLINE=1
+fi
 
-echo "==> Installing dependencies"
-python -m pip install -r "$REPO_ROOT/requirements.txt"
+if [ "$OFFLINE" -eq 1 ]; then
+    echo "==> Offline bundle found in vendor/wheels - installing without internet"
+    python -m pip install --no-index --find-links "$WHEELS_DIR" --upgrade pip wheel \
+        || echo "    (pip/wheel not in bundle - using the version shipped with venv)"
+    echo "==> Installing dependencies (offline)"
+    python -m pip install --no-index --find-links "$WHEELS_DIR" -r "$REPO_ROOT/requirements.txt"
+else
+    echo "==> Upgrading pip"
+    python -m pip install --upgrade pip wheel >/dev/null
+    echo "==> Installing dependencies (from PyPI)"
+    python -m pip install -r "$REPO_ROOT/requirements.txt"
+fi
 
 echo "==> Ensuring save directory exists"
 mkdir -p "$REPO_ROOT/saved_data"

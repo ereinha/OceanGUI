@@ -70,6 +70,40 @@ The installer will:
 4. (Linux) configure seabreeze udev rules via `seabreeze_os_setup`,
 5. create a **desktop shortcut**.
 
+### Offline / flash-drive install (no internet on the target machine)
+
+To install on an **air-gapped computer**, pre-download the dependencies on a
+machine that *has* internet, then carry everything on a flash drive:
+
+1. **On an online machine** (ideally the same OS/architecture as the target):
+
+   ```bash
+   ./prepare_offline.sh          # Linux/macOS
+   # or:  powershell -ExecutionPolicy Bypass -File prepare_offline.ps1   (Windows)
+   ```
+
+   This downloads every wheel into `vendor/wheels/`. To build a bundle for a
+   different platform, e.g.:
+
+   ```bash
+   python assets/prepare_offline.py --target windows64 --python-version 3.11
+   ```
+
+2. **Copy the whole `OceanGUI` folder** (including `vendor/wheels/`) onto the
+   flash drive and over to the offline machine.
+
+3. **On the offline machine**, run the normal installer:
+
+   ```bash
+   ./install.sh        # or install.bat on Windows
+   ```
+
+   It auto-detects `vendor/wheels/` and installs with `pip --no-index`, so **no
+   network access is used**. (The target machine still needs Python itself
+   installed — put the Python installer on the drive too if needed.)
+
+See [vendor/README.md](vendor/README.md) for details.
+
 ---
 
 ## Running
@@ -122,10 +156,12 @@ OceanGUI/
 │   ├── plotting.py      # shared matplotlib rendering
 │   └── storage.py       # CSV / figure saving
 ├── assets/
-│   ├── make_icon.py     # generates the app icon
-│   └── make_shortcut.py # creates the desktop shortcut (Linux/Windows)
+│   ├── make_icon.py       # generates the app icon
+│   ├── make_shortcut.py   # creates the desktop shortcut (Linux/Windows)
+│   └── prepare_offline.py # downloads wheels for an offline bundle
+├── vendor/wheels/       # offline dependency bundle (built on demand)
 ├── saved_data/          # acquisition output (inside the repo)
-├── install.sh / run.sh           # Linux / macOS
-├── install.ps1 / install.bat / run.bat   # Windows
+├── install.sh / run.sh / prepare_offline.sh          # Linux / macOS
+├── install.ps1 / install.bat / run.bat / prepare_offline.ps1   # Windows
 └── requirements.txt
 ```

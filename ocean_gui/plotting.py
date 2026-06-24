@@ -1,14 +1,3 @@
-"""Reusable matplotlib rendering helpers.
-
-The same drawing routines are used both for the live, embedded canvases and
-for the figures written to disk, so saved files match what the user sees.
-
-All plots follow a paper-quality style: descriptive axis labels with units,
-*no* in-axes title (the figure caption/headers carry that), inward tick marks
-on all four sides, and data drawn edge-to-edge so the ticks reach the plot
-borders. Figures are saved at 300 DPI.
-"""
-
 import numpy as np
 
 LINE_RED = "#cc1f1f"

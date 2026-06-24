@@ -16,6 +16,10 @@ assets/icon.ico
 saved_data/*
 !saved_data/.gitkeep
 
+# Offline wheel bundle (large, platform-specific; built by prepare_offline)
+vendor/wheels/*
+!vendor/wheels/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db
