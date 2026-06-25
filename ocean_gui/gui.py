@@ -815,7 +815,13 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             self._ref_integ_ms = integ_ms
         self._finish_capture()
         self._update_dark_ref_labels()
-        self._update_status(f"{self._capture_target.capitalize()} stored.")
+        requested = self.single_time.milliseconds()
+        if integ_ms + 1.0 < requested:
+            self._update_status(
+                f"{self._capture_target.capitalize()} stored — the device limited "
+                f"integration to {integ_ms:g} ms (you requested {requested:g} ms).")
+        else:
+            self._update_status(f"{self._capture_target.capitalize()} stored.")
 
     def _on_capture_failed(self, message: str) -> None:
         self._finish_capture()
@@ -1018,14 +1024,24 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._set_busy_controls(False)
         self._update_status(f"Running -> {self.run_dir}")
 
+    def _clamp_ms(self, ms: float) -> float:
+        """The integration time the device would actually apply for ``ms``."""
+        if self.spec is None:
+            return ms
+        lo, hi = self.spec.integration_limits_micros()
+        if lo is None or hi is None:
+            return ms
+        return max(lo, min(int(round(ms * 1000)), hi)) / 1000.0
+
     def _integration_mismatch(self, run_ms: float) -> Optional[str]:
         """Message if a stored dark/reference used a different integration time."""
+        run_ms = self._clamp_ms(run_ms)
         issues = []
         if self.processor.dark is not None and self._dark_integ_ms is not None \
-                and abs(self._dark_integ_ms - run_ms) > 1e-6:
+                and abs(self._dark_integ_ms - run_ms) > 1.0:
             issues.append(f"dark was captured at {self._dark_integ_ms:g} ms")
         if self.processor.reference is not None and self._ref_integ_ms is not None \
-                and abs(self._ref_integ_ms - run_ms) > 1e-6:
+                and abs(self._ref_integ_ms - run_ms) > 1.0:
             issues.append(f"reference was captured at {self._ref_integ_ms:g} ms")
         if not issues:
             return None

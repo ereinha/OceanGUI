@@ -1,24 +1,3 @@
-"""Measurement modes and spectral post-processing.
-
-These transforms mirror the standard OceanView acquisition modes. Most are
-computed in software from a raw spectrum plus an optional stored **dark**
-(background) and **reference** spectrum:
-
-* **Scope**            - raw counts (no processing).
-* **Scope minus dark** - raw counts with the dark/background subtracted.
-* **Absorbance**       - ``A = -log10((S - D) / (R - D))``.
-* **Transmittance**    - ``%T = 100 * (S - D) / (R - D)``.
-* **Reflectance**      - ``%R = 100 * (S - D) / (R - D)`` (reflectance standard).
-* **Irradiance**       - absolute spectral irradiance (µW/cm²/nm); needs a
-                          radiometric **calibration file** and a dark.
-* **Raman shift**      - dark-subtracted intensity plotted against Raman shift
-                          (cm⁻¹) relative to an **excitation wavelength**.
-
-where S = sample, D = dark, R = reference.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Tuple
@@ -38,7 +17,6 @@ class MeasurementMode(Enum):
     RAMAN = "raman"
 
 
-# Human-readable names (for the GUI drop-down) and axis labels per mode.
 MODE_LABELS = {
     MeasurementMode.SCOPE: "Scope (raw counts)",
     MeasurementMode.DARK_SUBTRACT: "Scope minus dark",
@@ -108,10 +86,8 @@ class Processor:
     dark: Optional[np.ndarray] = None
     reference: Optional[np.ndarray] = None
     boxcar_width: int = 0
-    # Irradiance: calibration as (wavelength_nm, microjoule_per_count) points.
     calibration: Optional[Tuple[np.ndarray, np.ndarray]] = None
     collection_area_cm2: float = 1.0
-    # Raman: excitation laser wavelength in nm.
     excitation_nm: Optional[float] = None
 
     def ylabel(self) -> str:
@@ -158,7 +134,6 @@ class Processor:
         if self.mode is MeasurementMode.IRRADIANCE:
             return self._irradiance(s, d, wavelengths, integration_time_s)
 
-        # Ratio modes (absorbance / transmittance / reflectance).
         r = boxcar_smooth(self.reference, self.boxcar_width) \
             if self.reference is not None else np.ones_like(s)
         num = s - d
@@ -171,13 +146,11 @@ class Processor:
 
     def _irradiance(self, s, d, wavelengths, integration_time_s) -> np.ndarray:
         if wavelengths is None or integration_time_s is None or self.calibration is None:
-            # Not enough context (guarded by missing_requirement upstream).
             return s - d
         cal_wl, cal_coeff = self.calibration
-        cal = np.interp(wavelengths, cal_wl, cal_coeff)          # µJ per count
-        dlambda = np.abs(np.gradient(np.asarray(wavelengths, dtype=float)))  # nm/pixel
+        cal = np.interp(wavelengths, cal_wl, cal_coeff)
+        dlambda = np.abs(np.gradient(np.asarray(wavelengths, dtype=float)))
         dlambda = np.where(dlambda < _EPS, _EPS, dlambda)
         t = max(float(integration_time_s), _EPS)
         area = max(float(self.collection_area_cm2), _EPS)
-        # (counts) * (µJ/count) / (s * nm * cm²) = µW/cm²/nm
         return (s - d) * cal / (t * dlambda * area)

@@ -64,6 +64,8 @@ class AcquisitionWorker(QtCore.QThread):
             processor = self._processor
             total = settings.integrations_count()
             self._spec.set_integration_time_ms(settings.single_time_ms)
+            self._spec.stabilize(correct_dark_counts=settings.correct_dark_counts,
+                                 correct_nonlinearity=settings.correct_nonlinearity)
 
             wavelengths = self._spec.wavelengths()
             collected = np.empty((total, wavelengths.size), dtype=float)
@@ -126,7 +128,9 @@ class CaptureWorker(QtCore.QThread):
 
     def run(self) -> None:
         try:
-            self._spec.set_integration_time_ms(self._single_time_ms)
+            actual_ms = self._spec.set_integration_time_ms(self._single_time_ms)
+            self._spec.stabilize(correct_dark_counts=self._correct_dark_counts,
+                                 correct_nonlinearity=self._correct_nonlinearity)
             wavelengths = self._spec.wavelengths()
             acc = np.zeros(wavelengths.size, dtype=float)
             for _ in range(self._n_average):
@@ -135,6 +139,6 @@ class CaptureWorker(QtCore.QThread):
                     correct_nonlinearity=self._correct_nonlinearity,
                 )
             spectrum = acc / self._n_average
-            self.captured.emit(wavelengths, spectrum, self._single_time_ms)
+            self.captured.emit(wavelengths, spectrum, actual_ms)
         except Exception as exc:
             self.failed.emit(str(exc))

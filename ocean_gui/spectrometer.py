@@ -150,8 +150,48 @@ class SpectrometerInterface:
     def serial_number(self) -> str:
         return getattr(self._device, "serial_number", "Unknown")
 
-    def set_integration_time_ms(self, milliseconds: float) -> None:
-        self._device.integration_time_micros(int(round(milliseconds * 1000)))
+    def integration_limits_micros(self):
+        """Return the device's (min, max) integration time in microseconds.
+
+        Returns ``(None, None)`` if the device does not report limits.
+        """
+        try:
+            lims = getattr(self._device, "integration_time_micros_limits", None)
+            if lims:
+                return int(lims[0]), int(lims[1])
+        except Exception:  # pragma: no cover - hardware dependent
+            pass
+        return None, None
+
+    def set_integration_time_ms(self, milliseconds: float) -> float:
+        """Set the integration time, clamped to the device's limits.
+
+        Returns the integration time actually applied (ms), which may differ
+        from the request if the device clamped it.
+        """
+        micros = int(round(milliseconds * 1000))
+        lo, hi = self.integration_limits_micros()
+        if lo is not None and hi is not None:
+            micros = max(lo, min(micros, hi))
+        self._device.integration_time_micros(micros)
+        return micros / 1000.0
+
+    def stabilize(self, correct_dark_counts: bool = False,
+                  correct_nonlinearity: bool = False) -> None:
+        """Discard one spectrum after an integration-time change.
+
+        Real Ocean devices return one spectrum still acquired at the *previous*
+        integration time after the setting is changed, so the first read must
+        be thrown away. The simulator has no such buffering, so this is a no-op
+        there (and avoids doubling simulated capture time).
+        """
+        if self.simulated:
+            return
+        try:
+            self.intensities(correct_dark_counts=correct_dark_counts,
+                             correct_nonlinearity=correct_nonlinearity)
+        except Exception:  # pragma: no cover - hardware dependent
+            pass
 
     def wavelengths(self) -> np.ndarray:
         return np.asarray(self._device.wavelengths(), dtype=float)
