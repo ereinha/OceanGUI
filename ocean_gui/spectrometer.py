@@ -133,16 +133,14 @@ class SpectrometerInterface:
         raise SpectrometerError(f"Device with serial '{serial}' not found.")
 
     def is_alive(self) -> bool:
-        """Best-effort check that the device is still present/responsive."""
-        if self.simulated:
-            return True
-        if not _SEABREEZE_AVAILABLE:
-            return False
-        try:
-            serials = [str(d.serial_number) for d in (list_devices() or [])]
-            return str(self.serial_number) in serials
-        except Exception:
-            return False
+        """Whether a device handle is currently held.
+
+        We deliberately do NOT call ``list_devices()`` here: re-enumerating the
+        USB bus while a device is open crashes some seabreeze backends (a native
+        crash that Python cannot catch). A genuine disconnect instead surfaces
+        as an error on the next acquisition, which the GUI reports.
+        """
+        return self._device is not None
 
     @property
     def model(self) -> str:
@@ -195,6 +193,7 @@ class SpectrometerInterface:
             self._device.close()
         except Exception:
             pass
+        self._device = None
 
 
 def backend_status() -> str:

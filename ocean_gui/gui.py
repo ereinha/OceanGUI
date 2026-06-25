@@ -543,49 +543,56 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         lay.addWidget(self.progress)
         return bar
 
+    @staticmethod
+    def _plot_header(label: QtWidgets.QLabel, button=None) -> QtWidgets.QWidget:
+        """A fixed-height centred header row, so both plot columns line up."""
+        w = QtWidgets.QWidget()
+        w.setFixedHeight(34)
+        row = QtWidgets.QHBoxLayout(w)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch(1)
+        row.addWidget(label)
+        row.addStretch(1)
+        if button is not None:
+            row.addWidget(button, 0)
+        return w
+
     def _build_plots(self) -> QtWidgets.QWidget:
         panel = QtWidgets.QWidget()
         h = QtWidgets.QHBoxLayout(panel)
 
-        header_font = QtGui.QFont()
-        header_font.setBold(True)
-        header_font.setPointSize(12)
+        self._header_font = QtGui.QFont()
+        self._header_font.setBold(True)
+        self._header_font.setPointSize(12)
 
         left = QtWidgets.QVBoxLayout()
         self.current_header = QtWidgets.QLabel("Current integration")
-        self.current_header.setAlignment(QtCore.Qt.AlignCenter)
-        self.current_header.setFont(header_font)
+        self.current_header.setFont(self._header_font)
         self.fig_current = Figure(figsize=(5, 4), tight_layout=True)
         self.ax_current = self.fig_current.add_subplot(111)
         self.canvas_current = FigureCanvas(self.fig_current)
-        left.addWidget(self.current_header)
-        left.addWidget(self.canvas_current)
+        left.addWidget(self._plot_header(self.current_header), 0)
+        left.addWidget(self.canvas_current, 1)
 
         right = QtWidgets.QVBoxLayout()
-        avg_header_row = QtWidgets.QHBoxLayout()
-        avg_header_row.addStretch(1)
         self.avg_header = QtWidgets.QLabel("Average integration")
-        self.avg_header.setAlignment(QtCore.Qt.AlignCenter)
-        self.avg_header.setFont(header_font)
-        avg_header_row.addWidget(self.avg_header)
-        avg_header_row.addStretch(1)
+        self.avg_header.setFont(self._header_font)
         self.fullscreen_btn = QtWidgets.QToolButton()
         self.fullscreen_btn.setText("⤢")
         self.fullscreen_btn.setToolTip("Maximise the average plot to full screen "
                                        "(double-click the plot; Esc exits)")
         self.fullscreen_btn.clicked.connect(self._open_fullscreen_average)
-        avg_header_row.addWidget(self.fullscreen_btn, 0)
         self.fig_avg = Figure(figsize=(5, 4), tight_layout=True)
         self.ax_avg = self.fig_avg.add_subplot(111)
         self.canvas_avg = FigureCanvas(self.fig_avg)
         self.canvas_avg.mpl_connect(
             "button_press_event",
             lambda e: e.dblclick and self._open_fullscreen_average())
-        right.addLayout(avg_header_row)
-        right.addWidget(self.canvas_avg)
+        right.addWidget(self._plot_header(self.avg_header, self.fullscreen_btn), 0)
+        right.addWidget(self.canvas_avg, 1)
 
-        h.addLayout(left)
-        h.addLayout(right)
+        h.addLayout(left, 1)
+        h.addLayout(right, 1)
 
         plotting.draw_placeholder(self.ax_current)
         plotting.draw_placeholder(self.ax_avg)
@@ -852,6 +859,11 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         return self.device_combo.currentData()
 
     def _refresh_devices(self) -> None:
+        if self.spec is not None and not self.spec.simulated:
+            self.spec.close()
+            self.spec = None
+            self._set_connection_indicator(False, "Not connected")
+            self._update_status("Disconnected for re-scan.")
         previous = self._selected_serial()
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
