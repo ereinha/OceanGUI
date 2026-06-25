@@ -25,14 +25,36 @@ DEFAULT_SAVE_DIR = REPO_ROOT / "saved_data"
 
 
 def sanitize_name(name: str) -> str:
+    """Sanitise a single path component (no separators)."""
     name = name.strip()
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
     return name.strip("._") or "run"
 
 
+def split_run_name(name: str):
+    """Split a run name into (folder components, base name).
+
+    A ``/`` or ``\\`` in the name is treated as a folder separator, so
+    "batch1/sampleA" saves into ``<save_dir>/batch1/sampleA_<timestamp>/``.
+    ``.`` and ``..`` components are dropped for safety.
+    """
+    parts = [p for p in re.split(r"[\\/]+", name.strip())
+             if p.strip() not in ("", ".", "..")]
+    parts = [sanitize_name(p) for p in parts]
+    if not parts:
+        parts = ["run"]
+    return parts[:-1], parts[-1]
+
+
+def run_basename(name: str) -> str:
+    """The sanitised final component used as the file-name prefix."""
+    return split_run_name(name)[1]
+
+
 def run_directory(name: str, save_dir: Path = DEFAULT_SAVE_DIR) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = Path(save_dir) / f"{sanitize_name(name)}_{stamp}"
+    folders, base = split_run_name(name)
+    path = Path(save_dir).joinpath(*folders) / f"{base}_{stamp}"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

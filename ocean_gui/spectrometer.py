@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from typing import List
 
@@ -51,6 +52,7 @@ class SimulatedSpectrometer:
         if correct_nonlinearity:
             raise SpectrometerError(
                 "Nonlinearity correction is not supported by this device.")
+        time.sleep(self._integration_us / 1_000_000.0)
         scale = self._integration_us / 100_000.0
         baseline = 200.0 * scale
         base = baseline + np.zeros(self._n)

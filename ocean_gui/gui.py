@@ -39,29 +39,33 @@ can still try every feature.</p>
 
 <h3>2. Settings</h3>
 <ul>
-<li><b>Single integration time (ms)</b> - exposure time of one spectrum.</li>
-<li><b>Down time (ms)</b> - pause inserted between integrations.</li>
+<li><b>Single integration</b> - exposure time of one spectrum. Pick the unit
+    (ms / s / min) next to the value.</li>
+<li><b>Down time</b> - pause inserted between integrations (same units).</li>
 <li><b>Run mode</b> - choose <i>one</i>:
   <ul>
   <li><b>Number of integrations</b> - run an exact count, or</li>
-  <li><b>Total integration time</b> - run for a total exposure; the count is
-      total / single time.</li>
+  <li><b>Total integration time</b> - run for a total exposure.</li>
   </ul>
-  You cannot use both at once.</li>
+  Whichever you don't pick is greyed out and <i>shows the value it would take</i>
+  - e.g. 100 scans x 1 s displays 100 s as the total.</li>
 </ul>
 
-<h3>3. Filename</h3>
-<p>A <b>run name is required</b> before <b>Start</b> is enabled. Output is
-written to <code>saved_data/&lt;name&gt;_&lt;timestamp&gt;/</code> inside the
-repository.</p>
+<h3>3. Run name &amp; folder</h3>
+<p>A <b>run name is required</b> before <b>Start</b> is enabled. Output goes to
+<code>&lt;folder&gt;/&lt;name&gt;_&lt;timestamp&gt;/</code>. Use <b>'/'</b> in the
+name to create sub-folders (e.g. <code>batch1/sample_A</code>), and
+<b>Choose folder…</b> to save somewhere other than the default
+<code>saved_data</code>.</p>
 
 <h3>4. Measurement modes</h3>
 <p>Pick a mode from the <b>Measurement mode</b> drop-down (S = sample,
 D = dark, R = reference):</p>
 <ul>
-<li><b>Scope</b> - raw counts (no processing).</li>
-<li><b>Scope minus dark</b> - raw counts with the stored dark subtracted.
-    <i>Needs a dark.</i></li>
+<li><b>Scope</b> - raw counts (no processing). <i>This is the mode for
+    fluorescence / emission</i> - there is no separate transform for it.</li>
+<li><b>Scope minus dark</b> - raw counts with the stored dark subtracted; good
+    for background-subtracted fluorescence. <i>Needs a dark.</i></li>
 <li><b>Absorbance</b> - A = -log10((S-D)/(R-D)). <i>Needs a dark and a
     reference.</i></li>
 <li><b>Transmittance (%)</b> / <b>Reflectance (%)</b> - 100·(S-D)/(R-D).
@@ -96,7 +100,9 @@ and the option is switched off. <b>Boxcar width</b> applies software smoothing
 <p>Left shows the <b>current</b> integration; right shows the running
 <b>average</b>, with axes labelled for the selected mode (the x-axis becomes
 Raman shift in Raman mode). Example dummy axes are shown until data arrives.
-Use the checkboxes to toggle <b>1σ / 2σ uncertainty bars and bands</b>.</p>
+Use the checkboxes to toggle <b>1σ / 2σ uncertainty bars and bands</b>.
+Click the <b>⤢</b> button above the average plot (or double-click the plot) to
+<b>maximise it to full screen</b>; press <b>Esc</b> to exit.</p>
 
 <h3>9. Saved files</h3>
 <p>When a run finishes these are written automatically:</p>
@@ -110,6 +116,78 @@ Use the checkboxes to toggle <b>1σ / 2σ uncertainty bars and bands</b>.</p>
 <p>The <b>Save total figure (with bars/bands)</b> button writes the average plot
 with whatever uncertainty toggles are currently enabled.</p>
 """
+
+
+class TimeField(QtWidgets.QWidget):
+    """A value spin-box plus a ms/s/min unit selector. Time is stored in ms."""
+
+    changed = QtCore.pyqtSignal()
+    _UNITS = (("ms", 1.0), ("s", 1000.0), ("min", 60000.0))
+
+    def __init__(self, default_ms: float = 1000.0, default_unit: str = "s",
+                 parent=None) -> None:
+        super().__init__(parent)
+        self._mult = dict(self._UNITS)
+        self._ms = float(default_ms)
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self.spin = QtWidgets.QDoubleSpinBox()
+        self.spin.setDecimals(3)
+        self.spin.setRange(0.0, 1.0e9)
+        self.unit = QtWidgets.QComboBox()
+        for name, _ in self._UNITS:
+            self.unit.addItem(name)
+        self.unit.setCurrentText(default_unit)
+        lay.addWidget(self.spin, 1)
+        lay.addWidget(self.unit, 0)
+        self._display_from_ms()
+        self.spin.valueChanged.connect(self._on_spin)
+        self.unit.currentIndexChanged.connect(self._on_unit_changed)
+
+    def _on_spin(self, *_) -> None:
+        self._ms = self.spin.value() * self._mult[self.unit.currentText()]
+        self.changed.emit()
+
+    def _on_unit_changed(self) -> None:
+        self._display_from_ms()
+        self.changed.emit()
+
+    def _display_from_ms(self) -> None:
+        self.spin.blockSignals(True)
+        self.spin.setValue(self._ms / self._mult[self.unit.currentText()])
+        self.spin.blockSignals(False)
+
+    def milliseconds(self) -> float:
+        return self._ms
+
+    def set_milliseconds(self, ms: float) -> None:
+        self._ms = float(ms)
+        self._display_from_ms()
+
+
+class FullScreenPlot(QtWidgets.QDialog):
+    """A full-screen view of one plot. Esc or the button exits full screen."""
+
+    def __init__(self, title: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.figure = Figure(tight_layout=True)
+        self.ax = self.figure.add_subplot(111)
+        self.canvas = FigureCanvas(self.figure)
+        lay.addWidget(self.canvas, 1)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        btn = QtWidgets.QPushButton("Exit full screen (Esc)")
+        btn.clicked.connect(self.close)
+        row.addWidget(btn)
+        lay.addLayout(row)
+
+    def render(self, draw_fn) -> None:
+        draw_fn(self.ax)
+        self.canvas.draw()
 
 
 class SpectrometerGUI(QtWidgets.QMainWindow):
@@ -130,6 +208,9 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._run_xlabel = ""
         self._run_ylabel = ""
         self._run_y0 = True
+        self._save_dir = storage.DEFAULT_SAVE_DIR
+        self._fs_plot: Optional[FullScreenPlot] = None
+        self._syncing = False
 
         self._wavelengths: Optional[np.ndarray] = None
         self._all_intensities: Optional[np.ndarray] = None
@@ -147,6 +228,7 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._update_mode_enabled()
         self._on_mode_changed()
         self._update_dark_ref_labels()
+        self._update_savedir_label()
         self._refresh_start_enabled()
 
         self._poll_timer = QtCore.QTimer(self)
@@ -262,16 +344,11 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
         form.setLabelAlignment(QtCore.Qt.AlignLeft)
 
-        self.single_time = QtWidgets.QDoubleSpinBox()
-        self.single_time.setRange(0.001, 60000.0)
-        self.single_time.setValue(100.0)
-        self.single_time.setSuffix(" ms")
+        self.single_time = TimeField(default_ms=1000.0, default_unit="s")
+        self.single_time.changed.connect(self._sync_derived)
         form.addRow("Single integration:", self.single_time)
 
-        self.down_time = QtWidgets.QDoubleSpinBox()
-        self.down_time.setRange(0.0, 600000.0)
-        self.down_time.setValue(0.0)
-        self.down_time.setSuffix(" ms")
+        self.down_time = TimeField(default_ms=0.0, default_unit="s")
         form.addRow("Down time:", self.down_time)
 
         self.mode_number = QtWidgets.QRadioButton("Number of integrations")
@@ -283,23 +360,40 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self.n_integrations = QtWidgets.QSpinBox()
         self.n_integrations.setRange(1, 1_000_000)
         self.n_integrations.setValue(10)
+        self.n_integrations.valueChanged.connect(self._sync_derived)
         form.addRow("  count:", self.n_integrations)
 
         form.addRow(self.mode_total)
-        self.total_time = QtWidgets.QDoubleSpinBox()
-        self.total_time.setRange(0.001, 86_400_000.0)
-        self.total_time.setValue(1000.0)
-        self.total_time.setSuffix(" ms")
+        self.total_time = TimeField(default_ms=10000.0, default_unit="s")
+        self.total_time.changed.connect(self._sync_derived)
         form.addRow("  total:", self.total_time)
         return s_box
 
     def _group_runname(self) -> QtWidgets.QGroupBox:
-        f_box = QtWidgets.QGroupBox("Run name (required)")
+        f_box = QtWidgets.QGroupBox("Run name && folder (required)")
         fb = QtWidgets.QVBoxLayout(f_box)
         self.filename = QtWidgets.QLineEdit()
-        self.filename.setPlaceholderText("e.g. sample_A")
+        self.filename.setPlaceholderText("e.g. sample_A   or   batch1/sample_A")
+        self.filename.setToolTip("Use '/' to save into sub-folders, "
+                                 "e.g. batch1/sample_A")
         self.filename.textChanged.connect(self._refresh_start_enabled)
         fb.addWidget(self.filename)
+
+        row = QtWidgets.QHBoxLayout()
+        self.browse_btn = QtWidgets.QPushButton("Choose folder…")
+        self.browse_btn.setToolTip("Pick the base folder to save runs into")
+        self.browse_btn.clicked.connect(self._choose_save_dir)
+        self.default_dir_btn = QtWidgets.QPushButton("Default")
+        self.default_dir_btn.setToolTip("Reset to the repository's saved_data folder")
+        self.default_dir_btn.clicked.connect(self._reset_save_dir)
+        row.addWidget(self.browse_btn)
+        row.addWidget(self.default_dir_btn)
+        fb.addLayout(row)
+
+        self.savedir_label = QtWidgets.QLabel()
+        self.savedir_label.setStyleSheet("font-size: 11px; color: #555555;")
+        self.savedir_label.setWordWrap(True)
+        fb.addWidget(self.savedir_label)
         return f_box
 
     def _group_mode(self) -> QtWidgets.QGroupBox:
@@ -468,13 +562,26 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         left.addWidget(self.canvas_current)
 
         right = QtWidgets.QVBoxLayout()
+        avg_header_row = QtWidgets.QHBoxLayout()
+        avg_header_row.addStretch(1)
         self.avg_header = QtWidgets.QLabel("Average integration")
         self.avg_header.setAlignment(QtCore.Qt.AlignCenter)
         self.avg_header.setFont(header_font)
+        avg_header_row.addWidget(self.avg_header)
+        avg_header_row.addStretch(1)
+        self.fullscreen_btn = QtWidgets.QToolButton()
+        self.fullscreen_btn.setText("⤢")
+        self.fullscreen_btn.setToolTip("Maximise the average plot to full screen "
+                                       "(double-click the plot; Esc exits)")
+        self.fullscreen_btn.clicked.connect(self._open_fullscreen_average)
+        avg_header_row.addWidget(self.fullscreen_btn, 0)
         self.fig_avg = Figure(figsize=(5, 4), tight_layout=True)
         self.ax_avg = self.fig_avg.add_subplot(111)
         self.canvas_avg = FigureCanvas(self.fig_avg)
-        right.addWidget(self.avg_header)
+        self.canvas_avg.mpl_connect(
+            "button_press_event",
+            lambda e: e.dblclick and self._open_fullscreen_average())
+        right.addLayout(avg_header_row)
         right.addWidget(self.canvas_avg)
 
         h.addLayout(left)
@@ -490,6 +597,29 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         is_number = self.mode_number.isChecked()
         self.n_integrations.setEnabled(is_number)
         self.total_time.setEnabled(not is_number)
+        self._sync_derived()
+
+    def _sync_derived(self) -> None:
+        """Show the derived value in whichever field is greyed out.
+
+        Number mode -> total = count x single integration time.
+        Total mode  -> count = floor(total / single integration time).
+        """
+        if self._syncing or not hasattr(self, "total_time"):
+            return
+        self._syncing = True
+        try:
+            single_ms = self.single_time.milliseconds()
+            if self.mode_number.isChecked():
+                self.total_time.set_milliseconds(self.n_integrations.value() * single_ms)
+            else:
+                total_ms = self.total_time.milliseconds()
+                n = max(1, int(total_ms // max(single_ms, 1e-9)))
+                self.n_integrations.blockSignals(True)
+                self.n_integrations.setValue(min(n, self.n_integrations.maximum()))
+                self.n_integrations.blockSignals(False)
+        finally:
+            self._syncing = False
 
     def _refresh_start_enabled(self) -> None:
         has_name = bool(self.filename.text().strip())
@@ -500,14 +630,28 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
 
     def _gather_settings(self) -> AcquisitionSettings:
         return AcquisitionSettings(
-            single_time_ms=self.single_time.value(),
-            down_time_ms=self.down_time.value(),
+            single_time_ms=self.single_time.milliseconds(),
+            down_time_ms=self.down_time.milliseconds(),
             mode=RunMode.NUMBER if self.mode_number.isChecked() else RunMode.TOTAL_TIME,
             n_integrations=self.n_integrations.value(),
-            total_time_ms=self.total_time.value(),
+            total_time_ms=self.total_time.milliseconds(),
             correct_dark_counts=self.cb_electric_dark.isChecked(),
             correct_nonlinearity=self.cb_nonlinearity.isChecked(),
         )
+
+    def _choose_save_dir(self) -> None:
+        d = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Choose base folder for saved runs", str(self._save_dir))
+        if d:
+            self._save_dir = Path(d)
+            self._update_savedir_label()
+
+    def _reset_save_dir(self) -> None:
+        self._save_dir = storage.DEFAULT_SAVE_DIR
+        self._update_savedir_label()
+
+    def _update_savedir_label(self) -> None:
+        self.savedir_label.setText(f"Saving to: {self._save_dir}")
 
     def _current_mode(self) -> MeasurementMode:
         return self.mode_combo.currentData()
@@ -524,8 +668,15 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             hints.append("a calibration file")
         if requires_excitation(mode):
             hints.append("an excitation wavelength")
-        self.mode_hint.setText(("This mode needs " + " and ".join(hints) + ".")
-                               if hints else "Raw spectrum, nothing else needed.")
+        if hints:
+            text = "This mode needs " + " and ".join(hints) + "."
+        else:
+            text = "Raw spectrum, nothing else needed."
+        if mode is MeasurementMode.SCOPE:
+            text += " Use this for fluorescence / emission."
+        elif mode is MeasurementMode.DARK_SUBTRACT:
+            text += " Good for background-subtracted fluorescence."
+        self.mode_hint.setText(text)
         self._apply_mode_param_enabled()
         self._redraw_current_and_average()
 
@@ -612,7 +763,7 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
                 return
         self._capture_target = which
         self.capture_worker = CaptureWorker(
-            self.spec, self.single_time.value(), n_average=10,
+            self.spec, self.single_time.milliseconds(), n_average=10,
             correct_dark_counts=self.cb_electric_dark.isChecked(),
             correct_nonlinearity=self.cb_nonlinearity.isChecked(),
         )
@@ -807,12 +958,12 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
                 return
 
         try:
-            self.run_dir = storage.run_directory(name)
+            self.run_dir = storage.run_directory(name, save_dir=self._save_dir)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Cannot create folder", str(exc))
             return
 
-        self._run_name = storage.sanitize_name(name)
+        self._run_name = storage.run_basename(name)
         self._run_single_ms = settings.single_time_ms
         self.progress.setMaximum(settings.integrations_count())
         self.progress.setValue(0)
@@ -930,11 +1081,10 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         """X-axis values for the current mode (wavelength, or Raman shift)."""
         return self.processor.xvalues(self._wavelengths)
 
-    def _redraw_average(self) -> None:
-        if self._wavelengths is None or self._average is None:
-            return
+    def _draw_average_into(self, ax) -> None:
+        """Render the current average (live state) onto the given axes."""
         plotting.draw_average(
-            self.ax_avg, self._xdata(), self._average, self._std,
+            ax, self._xdata(), self._average, self._std,
             bars_1sigma=self.cb_bars1.isChecked(),
             bars_2sigma=self.cb_bars2.isChecked(),
             band_1sigma=self.cb_band1.isChecked(),
@@ -942,7 +1092,14 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             ylabel=self._ylabel(), xlabel=self.processor.xlabel(),
             y_from_zero=self._y_from_zero(),
         )
+
+    def _redraw_average(self) -> None:
+        if self._wavelengths is None or self._average is None:
+            return
+        self._draw_average_into(self.ax_avg)
         self.canvas_avg.draw()
+        if self._fs_plot is not None:
+            self._fs_plot.render(self._draw_average_into)
 
     def _redraw_current_and_average(self) -> None:
         """Redraw both panels (e.g. after a mode/excitation change)."""
@@ -952,6 +1109,20 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             self._redraw_average()
         except Exception as exc:
             self._update_status(f"Plot update skipped: {exc}")
+
+    def _open_fullscreen_average(self) -> None:
+        if self._average is None:
+            self._update_status("No average yet — run an acquisition first.")
+            return
+        if self._fs_plot is None:
+            self._fs_plot = FullScreenPlot("Average integration", self)
+            self._fs_plot.finished.connect(self._on_fullscreen_closed)
+        self._fs_plot.render(self._draw_average_into)
+        self._fs_plot.showFullScreen()
+        self._fs_plot.raise_()
+
+    def _on_fullscreen_closed(self, *_) -> None:
+        self._fs_plot = None
 
     @staticmethod
     def _save_paper_figure(draw, out_path: str) -> None:
@@ -1044,6 +1215,8 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         )
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        if self._fs_plot is not None:
+            self._fs_plot.close()
         if self.worker is not None and self.worker.isRunning():
             self.worker.abort()
             self.worker.wait(5000)
