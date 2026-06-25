@@ -36,6 +36,9 @@ automatically.</p>
 </ul>
 <p>If no device or backend is found, a <b>simulation</b> entry is offered so you
 can still try every feature.</p>
+<p><b>Only one copy of the app can run at a time</b> (a spectrometer can be used
+by just one program). Launching a second copy shows a warning and exits without
+disturbing the running one.</p>
 
 <h3>2. Settings</h3>
 <ul>
@@ -81,7 +84,9 @@ D = dark, R = reference):</p>
 
 <h3>5. Background &amp; reference</h3>
 <p>Use <b>Capture dark</b> (block the light first) and <b>Capture reference</b>
-to store averaged spectra. The labels show whether each is stored and at what
+to store spectra. <b>Scans to average</b> sets how many scans are averaged for
+each capture (default 1 = a single scan; higher gives a cleaner dark/reference
+but takes longer). The labels show whether each is stored and at what
 integration time; you'll be warned if a run uses a different integration time.
 A mode won't start until everything it needs is provided.</p>
 
@@ -211,6 +216,7 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._save_dir = storage.DEFAULT_SAVE_DIR
         self._fs_plot: Optional[FullScreenPlot] = None
         self._syncing = False
+        self._single_instance_server = None
 
         self._wavelengths: Optional[np.ndarray] = None
         self._all_intensities: Optional[np.ndarray] = None
@@ -413,6 +419,13 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
     def _group_background(self) -> QtWidgets.QGroupBox:
         b_box = QtWidgets.QGroupBox("Background && reference")
         bl = QtWidgets.QGridLayout(b_box)
+
+        scans_label = QtWidgets.QLabel("Scans to average:")
+        self.capture_scans = QtWidgets.QSpinBox()
+        self.capture_scans.setRange(1, 100000)
+        self.capture_scans.setValue(1)
+        self.capture_scans.setToolTip("Number of scans averaged when capturing "
+                                      "a dark or reference (1 = a single scan)")
         self.capture_dark_btn = QtWidgets.QPushButton("Capture dark")
         self.capture_dark_btn.setToolTip("Store an averaged background "
                                          "(block the light first)")
@@ -428,12 +441,14 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self.clear_ref_btn.clicked.connect(self._clear_reference)
         self.ref_label = QtWidgets.QLabel("Reference: none")
         self.ref_label.setStyleSheet("font-size: 11px;")
-        bl.addWidget(self.capture_dark_btn, 0, 0)
-        bl.addWidget(self.clear_dark_btn, 0, 1)
-        bl.addWidget(self.dark_label, 1, 0, 1, 2)
-        bl.addWidget(self.capture_ref_btn, 2, 0)
-        bl.addWidget(self.clear_ref_btn, 2, 1)
-        bl.addWidget(self.ref_label, 3, 0, 1, 2)
+        bl.addWidget(scans_label, 0, 0)
+        bl.addWidget(self.capture_scans, 0, 1)
+        bl.addWidget(self.capture_dark_btn, 1, 0)
+        bl.addWidget(self.clear_dark_btn, 1, 1)
+        bl.addWidget(self.dark_label, 2, 0, 1, 2)
+        bl.addWidget(self.capture_ref_btn, 3, 0)
+        bl.addWidget(self.clear_ref_btn, 3, 1)
+        bl.addWidget(self.ref_label, 4, 0, 1, 2)
         return b_box
 
     def _group_params(self) -> QtWidgets.QGroupBox:
@@ -769,8 +784,9 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             if self.spec is None:
                 return
         self._capture_target = which
+        n_scans = self.capture_scans.value()
         self.capture_worker = CaptureWorker(
-            self.spec, self.single_time.milliseconds(), n_average=10,
+            self.spec, self.single_time.milliseconds(), n_average=n_scans,
             correct_dark_counts=self.cb_electric_dark.isChecked(),
             correct_nonlinearity=self.cb_nonlinearity.isChecked(),
         )
@@ -779,7 +795,8 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         self._set_busy_controls(False)
         self._set_device_controls_enabled(False)
         self.start_btn.setEnabled(False)
-        self._update_status(f"Capturing {which} (averaging 10 scans)...")
+        scans_msg = "1 scan" if n_scans == 1 else f"averaging {n_scans} scans"
+        self._update_status(f"Capturing {which} ({scans_msg})...")
         self.capture_worker.start()
 
     def _finish_capture(self) -> None:
@@ -828,9 +845,10 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
     def _set_busy_controls(self, enabled: bool) -> None:
         """Enable/disable capture + mode controls while a run/capture is active."""
         for w in (self.capture_dark_btn, self.clear_dark_btn, self.capture_ref_btn,
-                  self.clear_ref_btn, self.mode_combo, self.cb_electric_dark,
-                  self.cb_nonlinearity, self.boxcar_width, self.excitation_nm,
-                  self.area_cm2, self.load_cal_btn, self.clear_cal_btn):
+                  self.clear_ref_btn, self.capture_scans, self.mode_combo,
+                  self.cb_electric_dark, self.cb_nonlinearity, self.boxcar_width,
+                  self.excitation_nm, self.area_cm2, self.load_cal_btn,
+                  self.clear_cal_btn):
             w.setEnabled(enabled)
         if enabled:
             self._apply_mode_param_enabled()
@@ -1239,6 +1257,8 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
                           and self.capture_worker.isRunning()))
         if self.spec is not None and not still_busy:
             self.spec.close()
+        if self._single_instance_server is not None:
+            self._single_instance_server.close()
         event.accept()
 
 
@@ -1264,13 +1284,50 @@ def _install_excepthook() -> None:
     sys.excepthook = hook
 
 
+_SINGLE_INSTANCE_KEY = "OceanSpectrometerGUI-single-instance"
+
+
+def _acquire_single_instance():
+    """Become the single running instance, or detect an existing one.
+
+    Returns the listening ``QLocalServer`` (which must be kept alive) on
+    success, or ``None`` if another instance is already running. We never kill
+    the existing instance - the new one simply refuses to start - so we can't
+    disturb a device the running instance has open.
+    """
+    from PyQt5 import QtNetwork
+
+    socket = QtNetwork.QLocalSocket()
+    socket.connectToServer(_SINGLE_INSTANCE_KEY)
+    if socket.waitForConnected(500):
+        socket.abort()
+        return None
+
+    QtNetwork.QLocalServer.removeServer(_SINGLE_INSTANCE_KEY)
+    server = QtNetwork.QLocalServer()
+    if not server.listen(_SINGLE_INSTANCE_KEY):
+        return server
+    return server
+
+
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     _install_excepthook()
+
+    server = _acquire_single_instance()
+    if server is None:
+        QtWidgets.QMessageBox.warning(
+            None, "Already running",
+            "Ocean Spectrometer GUI is already open.\n\n"
+            "Only one instance can run at a time, because the spectrometer can "
+            "be used by just one program. Please switch to the existing window.")
+        return 0
+
     icon_path = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
     if icon_path.exists():
         app.setWindowIcon(QtGui.QIcon(str(icon_path)))
     win = SpectrometerGUI()
+    win._single_instance_server = server
     win.show()
     return app.exec_()
 

@@ -45,6 +45,7 @@ def main() -> int:
         "--windowed",
         "--paths", str(REPO_ROOT),
         "--collect-all", "seabreeze",
+        "--hidden-import", "PyQt5.QtNetwork",
         "--distpath", str(REPO_ROOT / "dist"),
         "--workpath", str(REPO_ROOT / "build"),
         "--specpath", str(REPO_ROOT / "build"),
