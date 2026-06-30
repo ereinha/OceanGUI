@@ -33,6 +33,8 @@ class SpectrometerError(RuntimeError):
 class SimulatedSpectrometer:
     model = "Simulated"
     serial_number = "SIM-0001"
+    supports_electric_dark = True
+    supports_nonlinearity = False
 
     def __init__(self, n_pixels: int = 2048) -> None:
         self._n = n_pixels
@@ -159,7 +161,7 @@ class SpectrometerInterface:
             lims = getattr(self._device, "integration_time_micros_limits", None)
             if lims:
                 return int(lims[0]), int(lims[1])
-        except Exception:  # pragma: no cover - hardware dependent
+        except Exception:
             pass
         return None, None
 
@@ -190,7 +192,7 @@ class SpectrometerInterface:
         try:
             self.intensities(correct_dark_counts=correct_dark_counts,
                              correct_nonlinearity=correct_nonlinearity)
-        except Exception:  # pragma: no cover - hardware dependent
+        except Exception:
             pass
 
     def wavelengths(self) -> np.ndarray:
@@ -227,6 +229,22 @@ class SpectrometerInterface:
         """
         self.intensities(correct_dark_counts=correct_dark_counts,
                          correct_nonlinearity=correct_nonlinearity)
+
+    def supports_electric_dark(self) -> bool:
+        """Whether electric-dark correction is available (no acquisition).
+
+        Uses the device's electric-dark pixel list (``_dp`` in seabreeze);
+        returns False if unknown so the feature isn't auto-enabled blindly.
+        """
+        if self.simulated:
+            return bool(getattr(self._device, "supports_electric_dark", False))
+        return bool(getattr(self._device, "_dp", None))
+
+    def supports_nonlinearity(self) -> bool:
+        """Whether nonlinearity coefficients are available (no acquisition)."""
+        if self.simulated:
+            return bool(getattr(self._device, "supports_nonlinearity", False))
+        return bool(getattr(self._device, "_nc", None))
 
     def close(self) -> None:
         try:
