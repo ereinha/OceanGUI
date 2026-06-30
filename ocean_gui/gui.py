@@ -327,6 +327,11 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
 
         cb.addWidget(QtWidgets.QLabel("Available devices:"))
         self.device_combo = QtWidgets.QComboBox()
+        self.device_combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.device_combo.setMinimumContentsLength(8)
+        self.device_combo.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
+                                        QtWidgets.QSizePolicy.Fixed)
         cb.addWidget(self.device_combo)
 
         btn_row = QtWidgets.QHBoxLayout()
@@ -901,6 +906,10 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
             if idx >= 0:
                 self.device_combo.setCurrentIndex(idx)
         self.device_combo.blockSignals(False)
+        fm = self.device_combo.fontMetrics()
+        widest = max((fm.horizontalAdvance(self.device_combo.itemText(i))
+                      for i in range(self.device_combo.count())), default=0)
+        self.device_combo.view().setMinimumWidth(widest + 40)
         self._update_status(f"Found {len(infos)} device option(s).")
 
     def _open(self, serial: str) -> None:
