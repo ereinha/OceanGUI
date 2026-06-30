@@ -97,9 +97,11 @@ current mode needs are enabled.</p>
 
 <h3>7. Corrections &amp; smoothing</h3>
 <p><b>Electric dark</b> and <b>Nonlinearity</b> corrections use device features
-that <i>not all spectrometers provide</i> - if yours doesn't, a popup explains
-and the option is switched off. <b>Boxcar width</b> applies software smoothing
-(0 = off).</p>
+that <i>not all spectrometers provide</i>. On connect they are <b>turned on
+automatically when the device supports them</b> (and left off otherwise). You
+can still toggle them manually; if you enable one the device can't do, a popup
+explains and it switches back off. <b>Boxcar width</b> applies software
+smoothing (0 = off).</p>
 
 <h3>8. Plots</h3>
 <p>Left shows the <b>current</b> integration; right shows the running
@@ -918,6 +920,24 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         idx = self.device_combo.findData(str(self.spec.serial_number))
         if idx >= 0:
             self.device_combo.setCurrentIndex(idx)
+        self._auto_enable_corrections()
+
+    def _auto_enable_corrections(self) -> None:
+        """Turn on the device corrections that are supported, by default.
+
+        Capability is checked without acquiring, and signals are blocked so the
+        manual-toggle probe (and its 'not supported' popup) never fires here -
+        that's why connecting to the simulated device no longer pops a warning
+        about nonlinearity.
+        """
+        if self.spec is None:
+            return
+        for checkbox, supported in (
+                (self.cb_electric_dark, self.spec.supports_electric_dark()),
+                (self.cb_nonlinearity, self.spec.supports_nonlinearity())):
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(supported))
+            checkbox.blockSignals(False)
 
     def _connect_selected(self) -> None:
         serial = self._selected_serial()
@@ -1261,16 +1281,20 @@ class SpectrometerGUI(QtWidgets.QMainWindow):
         )
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        if self.worker is not None and self.worker.isRunning():
+            QtWidgets.QMessageBox.warning(
+                self, "Acquisition in progress",
+                "A scan is currently running.\n\nPress Interrupt and wait for it "
+                "to stop before closing the application.")
+            event.ignore()
+            return
+
         if self._fs_plot is not None:
             self._fs_plot.close()
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.abort()
-            self.worker.wait(5000)
         if self.capture_worker is not None and self.capture_worker.isRunning():
             self.capture_worker.wait(5000)
-        still_busy = ((self.worker is not None and self.worker.isRunning())
-                      or (self.capture_worker is not None
-                          and self.capture_worker.isRunning()))
+        still_busy = (self.capture_worker is not None
+                      and self.capture_worker.isRunning())
         if self.spec is not None and not still_busy:
             self.spec.close()
         if self._single_instance_server is not None:
